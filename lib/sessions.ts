@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type postgres from "postgres";
-import { colorForId } from "./colors";
+import { assignSliceColors } from "./colors";
 import { spinWindowMs } from "./config";
 import { isSessionCode, makeCode } from "./codes";
 import { ensureSchema, getSql } from "./db";
@@ -187,10 +187,14 @@ function present(loaded: Loaded, code: string, deviceToken: string | null, now: 
     ? loaded.participants.find((person) => person.device_token === deviceToken) ?? null
     : null;
 
+  const activeShows = loaded.shows.filter((show) => show.eliminated_at == null);
+  const paints = assignSliceColors(activeShows.length);
+  const paintById = new Map(activeShows.map((show, index) => [show.id, paints[index]!]));
+
   const shows: ShowView[] = loaded.shows.map((show) => {
     const person = people.get(show.participant_id);
-    const colors = colorForId(show.id);
     const eliminated = show.eliminated_at != null;
+    const colors = paintById.get(show.id) ?? paints[0] ?? { fill: "#6B4524", ink: "#F4E7D4" };
     return {
       id: show.id,
       title: show.title,

@@ -16,13 +16,16 @@ test.afterAll(async () => {
 });
 
 test("create, add, lock, spin, reveal, and history", async ({ page, browser, request }) => {
+  await page.addInitScript(() => localStorage.setItem("www-theme", "dark"));
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /watchin/i })).toBeVisible();
-  await shot(page, "landing_desktop");
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await shot(page, "landing_mobile", true);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await shoot(page, "landing_dark");
+  await auditMobile(page, { spin: false });
+  await setTheme(page, "light");
+  await shoot(page, "landing_light");
+  await setTheme(page, "dark");
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "Start a night" }).click();
@@ -62,9 +65,11 @@ test("create, add, lock, spin, reveal, and history", async ({ page, browser, req
   await expect(other.getByText("The Bear", { exact: true }).first()).toBeVisible({ timeout: 8_000 });
   await other.close();
 
-  await shot(page, "adding_shows_desktop");
-  await page.setViewportSize({ width: 390, height: 844 });
-  await shot(page, "adding_shows_mobile", true);
+  await auditMobile(page, { spin: false });
+  await shoot(page, "adding_dark");
+  await setTheme(page, "light");
+  await shoot(page, "adding_light");
+  await setTheme(page, "dark");
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.getByRole("button", { name: "Lock it in" }).click();
@@ -73,9 +78,11 @@ test("create, add, lock, spin, reveal, and history", async ({ page, browser, req
 
   await spinOnce(page);
   await expect(page.getByTestId("show-row")).toHaveCount(5);
-  await shot(page, "wheel_mid_session_desktop");
-  await page.setViewportSize({ width: 390, height: 844 });
-  await shot(page, "wheel_mid_session_mobile", true);
+  await expectSpinReachable(page);
+  await shoot(page, "wheel_dark");
+  await setTheme(page, "light");
+  await shoot(page, "wheel_light");
+  await setTheme(page, "dark");
   await page.setViewportSize({ width: 1440, height: 900 });
 
   for (let turn = 0; turn < 8; turn += 1) {
@@ -89,18 +96,22 @@ test("create, add, lock, spin, reveal, and history", async ({ page, browser, req
   await expect(page.getByText(/added by/).first()).toBeVisible();
   const winner = ((await page.getByTestId("winner-title").textContent()) ?? "").trim();
 
-  await shot(page, "winner_reveal_desktop");
-  await page.setViewportSize({ width: 390, height: 844 });
-  await shot(page, "winner_reveal_mobile", true);
+  await auditMobile(page, { spin: false });
+  await shoot(page, "winner_dark");
+  await setTheme(page, "light");
+  await shoot(page, "winner_light");
+  await setTheme(page, "dark");
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/history");
   await expect(page.getByRole("heading", { name: "Past nights" })).toBeVisible();
   const historyLink = page.getByRole("link", { name: new RegExp(escapeRegExp(winner)) });
   await expect(historyLink).toBeVisible();
-  await shot(page, "history_desktop");
-  await page.setViewportSize({ width: 390, height: 844 });
-  await shot(page, "history_mobile", true);
+  await auditMobile(page, { spin: false });
+  await shoot(page, "history_dark");
+  await setTheme(page, "light");
+  await shoot(page, "history_light");
+  await page.setViewportSize({ width: 1440, height: 900 });
   await historyLink.click();
   await expect(page.getByTestId("winner-title")).toHaveText(winner);
 });
@@ -121,10 +132,67 @@ async function spinOnce(page: Page) {
     .toBeLessThan(before);
 }
 
+async function setTheme(page: Page, theme: "light" | "dark") {
+  const current = await page.locator("html").getAttribute("data-theme");
+  if (current !== theme) {
+    await page.getByRole("button", { name: "Switch color theme" }).click();
+  }
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+}
+
+async function shoot(page: Page, name: string) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await shot(page, `${name}_desktop`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shot(page, `${name}_mobile`, true);
+}
+
+async function auditMobile(page: Page, options: { spin: boolean }) {
+  for (const viewport of [
+    { width: 360, height: 700 },
+    { width: 390, height: 844 },
+    { width: 430, height: 932 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    const wheel = page.getByTestId("wheel");
+    if ((await wheel.count()) > 0) {
+      const box = await wheel.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(-1);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
+    }
+    const inputs = page.locator("input:visible");
+    const inputCount = await inputs.count();
+    for (let index = 0; index < inputCount; index += 1) {
+      const size = await inputs.nth(index).evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+      expect(size).toBeGreaterThanOrEqual(16);
+    }
+    const buttons = page.locator("button:visible");
+    const buttonCount = await buttons.count();
+    for (let index = 0; index < buttonCount; index += 1) {
+      const box = await buttons.nth(index).boundingBox();
+      if (!box) continue;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    if (options.spin) {
+      const spin = await page.getByRole("button", { name: "Give it a spin" }).boundingBox();
+      expect(spin).not.toBeNull();
+      expect(spin!.y + spin!.height).toBeLessThanOrEqual(viewport.height + 1);
+    }
+  }
+}
+
+async function expectSpinReachable(page: Page) {
+  await auditMobile(page, { spin: true });
+}
+
 async function shot(page: Page, name: string, fullPage = false) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({
-    path: `${shots}/${name}_v3.png`,
+    path: `${shots}/${name}.png`,
     animations: "disabled",
     fullPage,
   });

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ThemeToggle } from "./ThemeToggle";
 
 export function SiteHeader() {
   return (
@@ -7,6 +8,7 @@ export function SiteHeader() {
         What we watchin?
       </Link>
       <nav>
+        <ThemeToggle />
         <Link className="nav-link" href="/history">
           Past nights
         </Link>

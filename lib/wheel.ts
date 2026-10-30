@@ -33,6 +33,30 @@ export function sliceUnderPointer(rotationDeg: number, count: number): number {
   return best;
 }
 
+/** SVG rotation keeps the tops of the letters pointing up, including on the left half. */
+export function uprightRotation(midFromTop: number): number {
+  const mid = ((midFromTop % 360) + 360) % 360;
+  return mid > 90 && mid < 270 ? mid + 180 : mid;
+}
+
+export function labelIsUpright(rotation: number): boolean {
+  const deg = ((rotation % 360) + 360) % 360;
+  const signed = deg > 180 ? deg - 360 : deg;
+  return Math.abs(signed) <= 90.001;
+}
+
+export function labelRadius(count: number): number {
+  if (count <= 2) return 30;
+  if (count <= 8) return 33;
+  return 36;
+}
+
+export function labelPose(midFromTop: number, radius: number): { x: number; y: number; rotation: number } {
+  const mid = ((midFromTop % 360) + 360) % 360;
+  const spot = polar(50, 50, radius, mid);
+  return { x: spot.x, y: spot.y, rotation: uprightRotation(mid) };
+}
+
 export function labelBudget(count: number): { maxChars: number; font: number; mode: "upright" | "radial" } {
   if (count <= 2) return { maxChars: 18, font: 4.6, mode: "upright" };
   const arc = (2 * Math.PI * 20) / Math.max(count, 1);

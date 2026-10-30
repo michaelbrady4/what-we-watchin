@@ -13,7 +13,7 @@ env.SPIN_WINDOW_MS = "1600";
 
 export default defineConfig({
   testDir: "e2e",
-  timeout: 90_000,
+  timeout: 180_000,
   expect: { timeout: 12_000 },
   fullyParallel: false,
   workers: 1,

@@ -4,7 +4,17 @@ import { describe, expect, it } from "vitest";
 import { CODE_ALPHABET, isSessionCode, makeCode } from "../lib/codes";
 import { decideSpin, pickIndex, settleState, type SpinState } from "../lib/elimination";
 import { cleanName, cleanTitle } from "../lib/text";
-import { labelBudget, landingRotation, sliceGeometry, sliceUnderPointer, wedgePath } from "../lib/wheel";
+import { assignSliceColors, colorsMatch, SLICE_COLORS } from "../lib/colors";
+import {
+  labelBudget,
+  labelIsUpright,
+  labelPose,
+  landingRotation,
+  sliceGeometry,
+  sliceUnderPointer,
+  uprightRotation,
+  wedgePath,
+} from "../lib/wheel";
 
 function shows(ids: string[]): SpinState["shows"] {
   return ids.map((id) => ({ id, eliminated: false, eliminationOrder: null }));
@@ -111,6 +121,38 @@ describe("wheel geometry", () => {
         if (count === 1) continue;
         const path = wedgePath(slice.start, slice.end);
         expect(path.includes("NaN")).toBe(false);
+      }
+    }
+  });
+});
+
+describe("wheel labels", () => {
+  it("keeps every rest-position label right side up", () => {
+    expect(labelIsUpright(180)).toBe(false);
+    expect(labelIsUpright(uprightRotation(180))).toBe(true);
+    for (let count = 2; count <= 30; count += 1) {
+      for (const slice of sliceGeometry(count)) {
+        const pose = labelPose(slice.mid, 33);
+        expect(labelIsUpright(pose.rotation)).toBe(true);
+      }
+    }
+  });
+});
+
+describe("slice colors", () => {
+  it("never gives neighbors the same color, including the wrap", () => {
+    for (let left = 0; left < SLICE_COLORS.length; left += 1) {
+      for (let right = left + 1; right < SLICE_COLORS.length; right += 1) {
+        expect(colorsMatch(SLICE_COLORS[left]!, SLICE_COLORS[right]!)).toBe(false);
+      }
+    }
+    for (let count = 1; count <= 36; count += 1) {
+      const paints = assignSliceColors(count);
+      expect(paints).toHaveLength(count);
+      if (count < 2) continue;
+      for (let index = 0; index < count; index += 1) {
+        const next = paints[(index + 1) % count]!;
+        expect(colorsMatch(paints[index]!.fill, next.fill)).toBe(false);
       }
     }
   });

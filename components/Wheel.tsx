@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react";
 import {
   easeOutQuint,
   labelBudget,
+  labelPose,
+  labelRadius,
   landingRotation,
-  polar,
   sliceGeometry,
   truncateTitle,
   wedgePath,
@@ -137,50 +138,33 @@ function Labels({
   budget,
 }: {
   shows: WheelSlice[];
-  budget: { maxChars: number; font: number; mode: "upright" | "radial" };
+  budget: { maxChars: number; font: number };
 }) {
   const geom = sliceGeometry(shows.length);
+  const radius = labelRadius(shows.length);
   return (
     <>
       {shows.map((show, index) => {
         const slice = geom[index]!;
         const text = truncateTitle(show.title, budget.maxChars);
+        const pose =
+          shows.length === 1
+            ? { x: 50, y: 52, rotation: 0 }
+            : labelPose(slice.mid, radius);
         const style = {
-          fontSize: budget.font,
+          fontSize: shows.length === 1 ? 5 : budget.font,
           fontFamily: "var(--font-sans), sans-serif",
           fontWeight: 650,
         } as const;
-
-        if (budget.mode === "upright" || shows.length === 1) {
-          const spot = polar(50, 50, shows.length === 1 ? 0 : 30, slice.mid);
-          return (
-            <text
-              key={show.id}
-              x={shows.length === 1 ? 50 : spot.x}
-              y={shows.length === 1 ? 52 : spot.y}
-              fill={show.ink}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              style={style}
-            >
-              {text}
-            </text>
-          );
-        }
-
-        const left = slice.mid > 90 && slice.mid < 270;
-        const from = polar(50, 50, left ? 43.5 : 18, slice.mid);
-        const toward = polar(50, 50, left ? 18 : 43.5, slice.mid);
-        const rot = (Math.atan2(toward.y - from.y, toward.x - from.x) * 180) / Math.PI;
         return (
           <text
             key={show.id}
-            x={from.x}
-            y={from.y}
+            x={pose.x}
+            y={pose.y}
             fill={show.ink}
-            textAnchor="start"
+            textAnchor="middle"
             dominantBaseline="middle"
-            transform={`rotate(${rot} ${from.x} ${from.y})`}
+            transform={`rotate(${pose.rotation} ${pose.x} ${pose.y})`}
             style={style}
           >
             {text}
