@@ -10,6 +10,7 @@ import {
   joinSession,
   listHistory,
   listLiveNights,
+  listOpenNights,
   lockSession,
   removeShow,
   renameSession,
@@ -248,6 +249,11 @@ it("reports live nights separately and keeps a null name after migration", async
   const happening = await listLiveNights(now + 50);
   expect(happening.map((night) => night.code)).toEqual(expect.arrayContaining([live.code, code]));
   expect(happening.find((night) => night.code === code)?.spinning).toBe(true);
+
+  const adding = await listOpenNights(now + 50);
+  expect(adding.map((night) => night.code)).toContain(live.code);
+  expect(adding.map((night) => night.code)).not.toContain(code);
+  expect(adding.every((night) => night.status === "open")).toBe(true);
 
   const settledWindow = await summarizeNights([code], now + spinWindowMs());
   expect(settledWindow[0]?.spinning).toBe(false);

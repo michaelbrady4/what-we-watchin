@@ -553,6 +553,19 @@ export async function listHistory(): Promise<HistoryNight[]> {
   }));
 }
 
+export async function listOpenNights(now = Date.now()): Promise<NightCard[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql<SummaryRow[]>`
+    SELECT id, name, created_at, completed_at, status, active_spin_show_id, active_spin_started_at
+    FROM sessions
+    WHERE status = 'open'
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+  return rows.map((row) => toCard(row, now));
+}
+
 export async function listLiveNights(now = Date.now()): Promise<NightCard[]> {
   await ensureSchema();
   const sql = getSql();

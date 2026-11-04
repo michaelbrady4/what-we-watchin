@@ -20,9 +20,11 @@ test("name a night, jump back to it, and separate live rooms from settled ones",
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(page.getByLabel("Night name (optional)")).toBeVisible();
-  await expect(page.getByLabel("Room code")).toBeVisible();
+  await expect(page.getByLabel("Room code")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Join" })).toHaveCount(0);
   await expect(page.getByTestId("return-bar")).toHaveCount(0);
   await expect(page.getByTestId("your-nights")).toHaveCount(0);
+  await expect(page.getByTestId("open-nights")).toHaveCount(0);
 
   await page.getByLabel("Night name (optional)").fill("Friday night picks");
   await page.getByRole("button", { name: "Start a night" }).click();
@@ -73,13 +75,21 @@ test("name a night, jump back to it, and separate live rooms from settled ones",
   await finishNight(request, monday, ["Alien", "Heat"]);
   await expect(page.getByTestId("winner")).toBeVisible({ timeout: 15_000 });
 
+  const createdLate = await request.post("/api/sessions", { data: { name: "Late shift" } });
+  expect(createdLate.ok()).toBeTruthy();
+  const late = ((await createdLate.json()) as { code: string }).code;
+
   await page.goto("/");
   await page.evaluate(() => window.dispatchEvent(new Event("www-nights")));
+  const openNights = page.getByTestId("open-nights");
+  await expect(openNights).toContainText("Friday night picks");
+  await expect(openNights).toContainText("Late shift");
+  await expect(openNights).not.toContainText("Movie Monday");
   const yours = page.getByTestId("your-nights");
-  await expect(yours).toContainText("Friday night picks");
-  await expect(yours).toContainText("Adding shows");
   await expect(yours).toContainText("Movie Monday");
   await expect(yours).toContainText("Done");
+  await expect(yours).not.toContainText("Friday night picks");
+  await expect(yours).not.toContainText("Late shift");
   await expect(page.getByTestId("return-bar")).toContainText("Friday night picks");
   await expect(page.getByTestId("return-bar")).toContainText("Adding shows");
   await expect(page.getByTestId("return-bar")).not.toContainText("live");
@@ -91,19 +101,11 @@ test("name a night, jump back to it, and separate live rooms from settled ones",
   await shoot(page, "home-your-nights-light-mobile", true);
   await setTheme(page, "dark");
 
-  await page.getByLabel("Room code").fill("nope");
-  await page.getByRole("button", { name: "Join" }).click();
-  const joinError = page.locator(".join-wrap .form-error");
-  await expect(joinError).toContainText("4 characters");
-  await page.getByLabel("Room code").fill("2222");
-  await page.getByRole("button", { name: "Join" }).click();
-  await expect(joinError).toContainText("No night with that code");
-
-  await page.getByLabel("Room code").fill(friday);
-  await page.getByRole("button", { name: "Join" }).click();
-  await page.waitForURL(new RegExp(`/s/${friday}$`));
-  await expect(page.getByTestId("night-name")).toHaveText("Friday night picks");
-  await expect(page.getByTestId("return-bar")).toHaveCount(0);
+  await openNights.getByRole("link", { name: "Late shift" }).click();
+  await page.waitForURL(new RegExp(`/s/${late}$`));
+  await expect(page.getByTestId("night-name")).toHaveText("Late shift");
+  await expect(page.getByTestId("return-bar")).toContainText("Friday night picks");
+  await finishNight(request, late, ["Dune", "Heat"]);
 
   await page.goto("/history");
   await expect(page.getByRole("heading", { name: "Happening now" })).toBeVisible();
