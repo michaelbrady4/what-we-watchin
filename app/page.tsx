@@ -1,6 +1,8 @@
 import { CreateNight } from "@/components/CreateNight";
 import { DecorWheel } from "@/components/DecorWheel";
+import { JoinNight } from "@/components/JoinNight";
 import { SiteHeader } from "@/components/SiteHeader";
+import { YourNights } from "@/components/YourNights";
 
 export default function HomePage() {
   return (
@@ -22,6 +24,8 @@ export default function HomePage() {
         </p>
         <CreateNight />
         <p className="fine">No accounts. The link is the invite.</p>
+        <JoinNight />
+        <YourNights />
       </main>
       <div className="hero-wheel" aria-hidden="true">
         <DecorWheel />

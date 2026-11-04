@@ -9,8 +9,10 @@ export const SCHEMA_STATEMENTS = [
     spin_seq INTEGER NOT NULL DEFAULT 0,
     active_spin_show_id UUID,
     active_spin_started_at TIMESTAMPTZ,
+    name TEXT,
     CONSTRAINT sessions_status_check CHECK (status IN ('open', 'locked', 'complete'))
   )`,
+  `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS name TEXT`,
   `CREATE TABLE IF NOT EXISTS participants (
     id UUID PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

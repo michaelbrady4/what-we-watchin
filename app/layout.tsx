@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Mono, Outfit } from "next/font/google";
+import { ReturnBar } from "@/components/ReturnBar";
 import "./globals.css";
 
 const display = Fraunces({
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </svg>
         </div>
         <div id="content">{children}</div>
+        <ReturnBar />
       </body>
     </html>
   );

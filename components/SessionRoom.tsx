@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { SessionView, ShowView } from "@/lib/types";
-import { cleanName, cleanTitle } from "@/lib/text";
+import { cleanName, cleanTitle, NIGHT_NAME_MAX } from "@/lib/text";
 import { api } from "./api";
 import { getSavedName, saveName } from "./device";
+import { rememberNight } from "./remember";
 import { SiteHeader } from "./SiteHeader";
 import { Wheel } from "./Wheel";
 
@@ -25,7 +26,10 @@ export function SessionRoom({ code }: { code: string }) {
   const [title, setTitle] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState("");
   const nameDirty = useRef(false);
+  const marked = useRef(false);
   const viewRef = useRef(view);
   viewRef.current = view;
 
@@ -68,6 +72,18 @@ export function SessionRoom({ code }: { code: string }) {
     if (!nameDirty.current && view?.you?.name) setName(view.you.name);
   }, [view?.you?.name]);
 
+  const joined = Boolean(view?.you);
+  useEffect(() => {
+    if (!joined || marked.current) return;
+    marked.current = true;
+    rememberNight(code);
+  }, [joined, code]);
+
+  useEffect(() => {
+    if (!view?.displayName) return;
+    document.title = `${view.displayName} \u00b7 What We Watchin?`;
+  }, [view?.displayName]);
+
   useEffect(() => {
     let stop = false;
     let timer = 0;
@@ -104,7 +120,10 @@ export function SessionRoom({ code }: { code: string }) {
       method: "POST",
       body: JSON.stringify({ name: cleaned }),
     });
-    if (data.view) applyView(data.view);
+    if (data.view) {
+      applyView(data.view);
+      rememberNight(code);
+    }
   }
 
   async function onAdd(event: FormEvent) {
@@ -133,6 +152,7 @@ export function SessionRoom({ code }: { code: string }) {
       setError(data.message ?? "Could not add that show.");
       return;
     }
+    rememberNight(code);
     setTitle("");
   }
 
@@ -154,6 +174,31 @@ export function SessionRoom({ code }: { code: string }) {
     setPending(null);
     if (data.view) applyView(data.view);
     if (!ok) setError(data.message ?? "Could not lock the list.");
+  }
+
+  function startRename() {
+    setDraftName(view?.name ?? "");
+    setEditingName(true);
+    setError(null);
+  }
+
+  async function onRename(event: FormEvent) {
+    event.preventDefault();
+    if (pending) return;
+    setPending("rename");
+    setError(null);
+    const { ok, data } = await api<ViewResponse>(`/api/sessions/${code}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: draftName }),
+    });
+    setPending(null);
+    if (data.view) applyView(data.view);
+    if (!ok) {
+      setError(data.message ?? "Could not rename this night.");
+      return;
+    }
+    rememberNight(code);
+    setEditingName(false);
   }
 
   async function onSpin() {
@@ -205,6 +250,44 @@ export function SessionRoom({ code }: { code: string }) {
     <main className="room" data-status={view.status}>
       <section className="panel">
         <SiteHeader />
+        <div className="night-head">
+          {editingName ? (
+            <form onSubmit={onRename}>
+              <label className="field">
+                <span>Night name</span>
+                <input
+                  value={draftName}
+                  onChange={(event) => setDraftName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setEditingName(false);
+                  }}
+                  placeholder="Friday night picks"
+                  maxLength={NIGHT_NAME_MAX}
+                  autoComplete="off"
+                  autoFocus
+                />
+              </label>
+              <p className="hint">Leave it blank to use the room code.</p>
+              <div className="rename-actions">
+                <button className="btn" type="submit" disabled={pending === "rename"}>
+                  {pending === "rename" ? "Saving..." : "Save name"}
+                </button>
+                <button className="btn btn-text" type="button" onClick={() => setEditingName(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="night-head-row">
+              <h1 className="room-title" data-testid="night-name">
+                {view.displayName}
+              </h1>
+              <button className="btn btn-text" type="button" onClick={startRename}>
+                Rename
+              </button>
+            </div>
+          )}
+        </div>
         <div className="ticket">
           <div>
             <p className="ticket-label">Send this link</p>
@@ -222,9 +305,9 @@ export function SessionRoom({ code }: { code: string }) {
           <div data-testid="winner">
             <div className="stamp">The pick</div>
             <p className="kicker winner-kicker">Tonight we watch</p>
-            <h1 className="winner-title" data-testid="winner-title">
+            <h2 className="winner-title" data-testid="winner-title">
               {view.winner.title}
-            </h1>
+            </h2>
             <p className="winner-by">{view.winner.addedBy} put this on the list.</p>
           </div>
         ) : null}
