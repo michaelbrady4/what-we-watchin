@@ -1,5 +1,6 @@
 import { CreateNight } from "@/components/CreateNight";
 import { DecorWheel } from "@/components/DecorWheel";
+import { HomeNights } from "@/components/HomeNights";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export default function HomePage() {
@@ -22,6 +23,7 @@ export default function HomePage() {
         </p>
         <CreateNight />
         <p className="fine">No accounts. The link is the invite.</p>
+        <HomeNights />
       </main>
       <div className="hero-wheel" aria-hidden="true">
         <DecorWheel />

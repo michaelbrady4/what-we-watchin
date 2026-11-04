@@ -2,17 +2,23 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 import { spinWindowMs } from "../lib/config";
 import { closeDb, ensureSchema, getSql } from "../lib/db";
+import { SCHEMA_STATEMENTS } from "../lib/schema";
 import {
   addShow,
   createSession,
   getSession,
   joinSession,
   listHistory,
+  listLiveNights,
+  listOpenNights,
   lockSession,
   removeShow,
+  renameSession,
   resetTables,
   spinSession,
+  summarizeNights,
 } from "../lib/sessions";
+import { nightStatusLabel } from "../lib/text";
 
 beforeAll(async () => {
   await ensureSchema();
@@ -185,6 +191,106 @@ it("lets a poll settle one spin, then crowns the last show and stops", async () 
   const history = await listHistory();
   expect(history.map((night) => night.winnerTitle)).toContain("Charlie");
   expect(history.find((night) => night.code === code)?.addedBy).toBe("Cy");
+});
+
+it("stores an optional night name and lets the room rename it", async () => {
+  const created = await createSession("  Friday night picks  ");
+  expect(created.name).toBe("Friday night picks");
+  const named = await getSession(created.code, null);
+  expect(named?.name).toBe("Friday night picks");
+  expect(named?.displayName).toBe("Friday night picks");
+
+  const renamed = await renameSession(created.code, "Sunday couch");
+  expect(renamed.ok).toBe(true);
+  if (renamed.ok) {
+    expect(renamed.view.name).toBe("Sunday couch");
+    expect(renamed.view.displayName).toBe("Sunday couch");
+  }
+
+  const cleared = await renameSession(created.code, "   ");
+  expect(cleared.ok).toBe(true);
+  if (cleared.ok) {
+    expect(cleared.view.name).toBeNull();
+    expect(cleared.view.displayName).toBe(`Night ${created.code}`);
+  }
+
+  const tooLong = await renameSession(created.code, "x".repeat(41));
+  expect(tooLong.ok).toBe(false);
+  if (!tooLong.ok) expect(tooLong.error).toBe("bad_night_name");
+
+  await expect(createSession("x".repeat(41))).rejects.toThrow(/Invalid night name/);
+
+  const unnamed = await createSession();
+  const view = await getSession(unnamed.code, null);
+  expect(view?.name).toBeNull();
+  expect(view?.displayName).toBe(`Night ${unnamed.code}`);
+  const missing = await renameSession("nope", "Hello");
+  expect(missing.ok).toBe(false);
+});
+
+it("reports live nights separately and keeps a null name after migration", async () => {
+  const live = await createSession("Friday night picks");
+  const { code } = await createSession();
+  await add(code, "The Bear", "Sam");
+  await add(code, "Hacks", "Sam");
+  await lockSession(code, null);
+  const now = 1_700_000_000_000;
+  const spin = await spinSession(code, null, now, () => 0);
+  expect(spin.ok).toBe(true);
+
+  const during = await summarizeNights([live.code, code, "no", "zzzz"], now + 50);
+  expect(during.map((night) => night.code).sort()).toEqual([code, live.code].sort());
+  const spinning = during.find((night) => night.code === code);
+  expect(spinning?.spinning).toBe(true);
+  expect(spinning?.status).toBe("locked");
+  expect(nightStatusLabel(spinning!.status, spinning!.spinning)).toBe("Spinning");
+  expect(during.find((night) => night.code === live.code)?.displayName).toBe("Friday night picks");
+
+  const happening = await listLiveNights(now + 50);
+  expect(happening.map((night) => night.code)).toEqual(expect.arrayContaining([live.code, code]));
+  expect(happening.find((night) => night.code === code)?.spinning).toBe(true);
+
+  const adding = await listOpenNights(now + 50);
+  expect(adding.map((night) => night.code)).toContain(live.code);
+  expect(adding.map((night) => night.code)).not.toContain(code);
+  expect(adding.every((night) => night.status === "open")).toBe(true);
+
+  const settledWindow = await summarizeNights([code], now + spinWindowMs());
+  expect(settledWindow[0]?.spinning).toBe(false);
+  expect(nightStatusLabel("locked", false)).toBe("Locked");
+
+  const finale = await spinSession(code, null, now + spinWindowMs(), () => 0);
+  expect(finale.ok && finale.result).toBe("winner");
+  const after = await listLiveNights(now + spinWindowMs());
+  expect(after.map((night) => night.code)).toContain(live.code);
+  expect(after.map((night) => night.code)).not.toContain(code);
+  const history = await listHistory();
+  expect(history.find((night) => night.code === code)?.displayName).toBe(`Night ${code}`);
+  expect(history.find((night) => night.code === code)?.name).toBeNull();
+
+  const sql = getSql();
+  const alter = SCHEMA_STATEMENTS.find((statement) => statement.includes("ADD COLUMN IF NOT EXISTS name"));
+  expect(alter).toBeTruthy();
+  await sql`ALTER TABLE sessions DROP COLUMN IF EXISTS name`;
+  try {
+    await sql`DELETE FROM sessions WHERE id = 'qb7g'`;
+    await sql`INSERT INTO sessions (id) VALUES ('qb7g')`;
+    await sql.unsafe(alter!);
+    const legacy = await getSession("qb7g", null);
+    expect(legacy?.name).toBeNull();
+    expect(legacy?.displayName).toBe("Night qb7g");
+    const cards = await summarizeNights(["qb7g"]);
+    expect(cards[0]?.status).toBe("open");
+    expect(cards[0]?.displayName).toBe("Night qb7g");
+    const columns = await sql<{ is_nullable: string }[]>`
+      SELECT is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'name'
+    `;
+    expect(columns[0]?.is_nullable).toBe("YES");
+  } finally {
+    if (alter) await sql.unsafe(alter);
+  }
 });
 
 it("remembers a renamed person on the same device", async () => {

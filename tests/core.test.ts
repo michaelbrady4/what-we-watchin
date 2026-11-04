@@ -3,7 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CODE_ALPHABET, isSessionCode, makeCode } from "../lib/codes";
 import { decideSpin, pickIndex, settleState, type SpinState } from "../lib/elimination";
-import { cleanName, cleanTitle } from "../lib/text";
+import { SCHEMA_STATEMENTS } from "../lib/schema";
+import { cleanName, cleanNightName, cleanTitle, displayNightName, nightStatusLabel } from "../lib/text";
 import { assignSliceColors, colorsMatch, SLICE_COLORS } from "../lib/colors";
 import {
   labelBudget,
@@ -165,6 +166,22 @@ describe("names and codes", () => {
     expect(cleanName("x".repeat(25))).toBeNull();
     expect(cleanTitle("  The   Bear ")).toBe("The Bear");
     expect(cleanTitle("")).toBeNull();
+  });
+
+  it("keeps night names optional and falls back to the code", () => {
+    expect(cleanNightName("  Friday   night picks ")).toEqual({ ok: true, name: "Friday night picks" });
+    expect(cleanNightName("   ")).toEqual({ ok: true, name: null });
+    expect(cleanNightName("")).toEqual({ ok: true, name: null });
+    expect(cleanNightName("x".repeat(41))).toEqual({ ok: false });
+    expect(cleanNightName("ok\u0000")).toEqual({ ok: false });
+    expect(displayNightName(null, "qb7g")).toBe("Night qb7g");
+    expect(displayNightName("  ", "qb7g")).toBe("Night qb7g");
+    expect(displayNightName("Friday night picks", "qb7g")).toBe("Friday night picks");
+    expect(nightStatusLabel("open", false)).toBe("Adding shows");
+    expect(nightStatusLabel("locked", false)).toBe("Locked");
+    expect(nightStatusLabel("locked", true)).toBe("Spinning");
+    expect(nightStatusLabel("complete", true)).toBe("Done");
+    expect(SCHEMA_STATEMENTS.some((statement) => statement.includes("ADD COLUMN IF NOT EXISTS name"))).toBe(true);
   });
 
   it("builds short unambiguous codes", () => {

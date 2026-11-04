@@ -13,6 +13,8 @@ export type ShowView = {
 
 export type SessionView = {
   code: string;
+  name: string | null;
+  displayName: string;
   status: Phase;
   createdAt: string;
   completedAt: string | null;
@@ -36,8 +38,20 @@ export type SessionView = {
 
 export type HistoryNight = {
   code: string;
+  name: string | null;
+  displayName: string;
   createdAt: string;
   completedAt: string | null;
   winnerTitle: string;
   addedBy: string;
+};
+
+export type NightCard = {
+  code: string;
+  name: string | null;
+  displayName: string;
+  status: Phase;
+  spinning: boolean;
+  createdAt: string;
+  completedAt: string | null;
 };

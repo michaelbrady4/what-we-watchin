@@ -1,6 +1,7 @@
 export const messages = {
   bad_title: "Give the show a name, up to 60 characters.",
   bad_name: "Enter a name, up to 24 characters.",
+  bad_night_name: "Night names can be up to 40 characters.",
   bad_device: "Refresh the page and try again.",
   limit: "You already have 3 shows on the wheel.",
   duplicate: "You already added that one.",

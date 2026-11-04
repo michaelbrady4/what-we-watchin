@@ -10,8 +10,8 @@ import {
   type SpinState,
 } from "./elimination";
 import { messages, type MessageKey } from "./messages";
-import { cleanName, cleanTitle, isUuid } from "./text";
-import type { HistoryNight, Phase, SessionView, ShowView } from "./types";
+import { cleanName, cleanNightName, cleanTitle, displayNightName, isUuid } from "./text";
+import type { HistoryNight, NightCard, Phase, SessionView, ShowView } from "./types";
 import { spinAnimMs } from "./wheel";
 
 type Sql = postgres.Sql;
@@ -19,12 +19,23 @@ type Querier = postgres.Sql | postgres.TransactionSql;
 
 type SessionRow = {
   id: string;
+  name: string | null;
   created_at: Date;
   completed_at: Date | null;
   locked_at: Date | null;
   status: Phase;
   winner_show_id: string | null;
   spin_seq: number | string;
+  active_spin_show_id: string | null;
+  active_spin_started_at: Date | string | null;
+};
+
+type SummaryRow = {
+  id: string;
+  name: string | null;
+  created_at: Date;
+  completed_at: Date | null;
+  status: Phase;
   active_spin_show_id: string | null;
   active_spin_started_at: Date | string | null;
 };
@@ -46,6 +57,7 @@ type ParticipantRow = {
 };
 
 type Loaded = {
+  name: string | null;
   createdAt: Date;
   completedAt: Date | null;
   state: SpinState;
@@ -89,14 +101,14 @@ function toState(session: SessionRow, shows: ShowRowDb[]): SpinState {
 async function selectSession(q: Querier, code: string, forUpdate: boolean): Promise<SessionRow | null> {
   const rows = forUpdate
     ? await q<SessionRow[]>`
-        SELECT id, created_at, completed_at, locked_at, status, winner_show_id,
+        SELECT id, name, created_at, completed_at, locked_at, status, winner_show_id,
                spin_seq, active_spin_show_id, active_spin_started_at
         FROM sessions
         WHERE id = ${code}
         FOR UPDATE
       `
     : await q<SessionRow[]>`
-        SELECT id, created_at, completed_at, locked_at, status, winner_show_id,
+        SELECT id, name, created_at, completed_at, locked_at, status, winner_show_id,
                spin_seq, active_spin_show_id, active_spin_started_at
         FROM sessions
         WHERE id = ${code}
@@ -128,6 +140,7 @@ async function load(q: Querier, code: string, forUpdate = false): Promise<Loaded
   const shows = await selectShows(q, code);
   const participants = await selectParticipants(q, code);
   return {
+    name: session.name,
     createdAt: new Date(session.created_at),
     completedAt: session.completed_at ? new Date(session.completed_at) : null,
     state: toState(session, shows),
@@ -215,6 +228,8 @@ function present(loaded: Loaded, code: string, deviceToken: string | null, now: 
 
   return {
     code,
+    name: loaded.name,
+    displayName: displayNightName(loaded.name, code),
     status: state.status,
     createdAt: loaded.createdAt.toISOString(),
     completedAt: loaded.completedAt ? loaded.completedAt.toISOString() : null,
@@ -257,20 +272,38 @@ function needsSettle(state: SpinState, now: number): boolean {
   );
 }
 
-export async function createSession(): Promise<{ code: string }> {
+export async function createSession(nameInput: string | null = null): Promise<{ code: string; name: string | null }> {
+  const parsed = cleanNightName(nameInput ?? "");
+  if (!parsed.ok) throw new Error("Invalid night name");
   await ensureSchema();
   const sql = getSql();
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const code = makeCode();
     try {
-      await sql`INSERT INTO sessions (id) VALUES (${code})`;
-      return { code };
+      await sql`INSERT INTO sessions (id, name) VALUES (${code}, ${parsed.name})`;
+      return { code, name: parsed.name };
     } catch (error) {
       if (isUniqueViolation(error)) continue;
       throw error;
     }
   }
   throw new Error("Could not allocate a session code");
+}
+
+export async function renameSession(code: string, nameInput: string, deviceToken: string | null = null): Promise<Mutation> {
+  if (!isSessionCode(code)) return fail("not_found");
+  const parsed = cleanNightName(nameInput);
+  if (!parsed.ok) return fail("bad_night_name");
+  await ensureSchema();
+  const sql = getSql();
+  return sql.begin(async (tx) => {
+    const session = await selectSession(tx, code, true);
+    if (!session) return fail("not_found");
+    await tx`UPDATE sessions SET name = ${parsed.name} WHERE id = ${code}`;
+    const view = await viewFrom(tx, code, deviceToken, Date.now());
+    if (!view) return fail("not_found");
+    return { ok: true, view };
+  });
 }
 
 export async function getSession(
@@ -471,17 +504,37 @@ export async function spinSession(
   });
 }
 
+function isSpinning(status: Phase, showId: string | null, startedAt: Date | string | null, now: number): boolean {
+  if (status !== "locked" || !showId || !startedAt) return false;
+  const started = new Date(startedAt).getTime();
+  if (Number.isNaN(started)) return false;
+  return now < started + spinWindowMs();
+}
+
+function toCard(row: SummaryRow, now: number): NightCard {
+  return {
+    code: row.id,
+    name: row.name,
+    displayName: displayNightName(row.name, row.id),
+    status: row.status,
+    spinning: isSpinning(row.status, row.active_spin_show_id, row.active_spin_started_at, now),
+    createdAt: new Date(row.created_at).toISOString(),
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+  };
+}
+
 export async function listHistory(): Promise<HistoryNight[]> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql<{
     id: string;
+    name: string | null;
     created_at: Date;
     completed_at: Date | null;
     winner_title: string;
     added_by: string;
   }[]>`
-    SELECT s.id, s.created_at, s.completed_at, sh.title AS winner_title, p.name AS added_by
+    SELECT s.id, s.name, s.created_at, s.completed_at, sh.title AS winner_title, p.name AS added_by
     FROM sessions s
     JOIN shows sh ON sh.id = s.winner_show_id
     JOIN participants p ON p.id = sh.participant_id
@@ -491,11 +544,52 @@ export async function listHistory(): Promise<HistoryNight[]> {
   `;
   return rows.map((row) => ({
     code: row.id,
+    name: row.name,
+    displayName: displayNightName(row.name, row.id),
     createdAt: new Date(row.created_at).toISOString(),
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     winnerTitle: row.winner_title,
     addedBy: row.added_by,
   }));
+}
+
+export async function listOpenNights(now = Date.now()): Promise<NightCard[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql<SummaryRow[]>`
+    SELECT id, name, created_at, completed_at, status, active_spin_show_id, active_spin_started_at
+    FROM sessions
+    WHERE status = 'open'
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+  return rows.map((row) => toCard(row, now));
+}
+
+export async function listLiveNights(now = Date.now()): Promise<NightCard[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql<SummaryRow[]>`
+    SELECT id, name, created_at, completed_at, status, active_spin_show_id, active_spin_started_at
+    FROM sessions
+    WHERE status <> 'complete'
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+  return rows.map((row) => toCard(row, now));
+}
+
+export async function summarizeNights(codes: string[], now = Date.now()): Promise<NightCard[]> {
+  const unique = [...new Set(codes.map((code) => code.toLowerCase()).filter((code) => isSessionCode(code)))].slice(0, 40);
+  if (unique.length === 0) return [];
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql<SummaryRow[]>`
+    SELECT id, name, created_at, completed_at, status, active_spin_show_id, active_spin_started_at
+    FROM sessions
+    WHERE id IN ${sql(unique)}
+  `;
+  return rows.map((row) => toCard(row, now));
 }
 
 export async function resetTables(): Promise<void> {
